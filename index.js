@@ -66,7 +66,7 @@ app.post('/upload', upload.single('file'), (req, res) => {
   }
 
   const fileId = path.parse(req.file.filename).name;
-  const shareLink = `https://my-client.onrender.com/sign/${fileId}`; // השתמשי בכתובת הקליינט הקבועה
+const shareLink = `https://client-digital-signature-x7xa.vercel.app/sign/${fileId}`;
 
   res.json({ message: 'הקובץ התקבל', shareLink });
 });
