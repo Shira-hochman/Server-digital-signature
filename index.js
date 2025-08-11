@@ -21,7 +21,7 @@ app.use((req, res, next) => {
 // הגדרות CORS
 const allowedOrigins = [
   'http://localhost:3000',
-  'https://client-digital-signature-x7xa.vercel.app',
+  'https://client-side-digital-signature.vercel.app',
 ];
 
 app.use(cors({
@@ -72,7 +72,7 @@ app.post('/upload', upload.single('file'), (req, res) => {
   }
 
   const fileId = path.parse(req.file.filename).name;
-  const shareLink = `https://client-digital-signature-x7xa.vercel.app/sign/${fileId}`;
+  const shareLink = `https://client-side-digital-signature.vercel.app/sign/${fileId}`;
 
   res.json({ message: 'הקובץ התקבל', shareLink });
 });
