@@ -1,7 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const cors = require('cors');
-const fs = require('fs');
+const fs = require('fs').promises; // שימוש בגרסה האסינכרונית
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const nodemailer = require('nodemailer');
@@ -12,11 +12,12 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// ✅ CORS עבור לוקאלי ו־Render
+// הגדרות CORS
 const allowedOrigins = [
   'http://localhost:3000',
-  'https://my-client.onrender.com', // החליפי לכתובת האמיתית של הקליינט
+  'https://client-digital-signature-x7xa.vercel.app',
 ];
+
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
@@ -28,7 +29,15 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 const UPLOAD_FOLDER = path.join(__dirname, 'uploads');
-if (!fs.existsSync(UPLOAD_FOLDER)) fs.mkdirSync(UPLOAD_FOLDER);
+
+// בדיקה אם התיקייה קיימת, אם לא - יוצר אותה
+(async () => {
+  try {
+    await fs.mkdir(UPLOAD_FOLDER, { recursive: true });
+  } catch (error) {
+    console.error('Failed to create uploads directory:', error);
+  }
+})();
 
 app.use('/files', express.static(UPLOAD_FOLDER));
 
@@ -40,14 +49,24 @@ const storage = multer.diskStorage({
     cb(null, fileId + ext);
   },
 });
-const upload = multer({ storage });
+
+const upload = multer({
+  storage,
+  fileFilter: (req, file, cb) => {
+    if (path.extname(file.originalname).toLowerCase() !== '.docx') {
+      return cb(new Error('יש להעלות קובץ מסוג docx בלבד'), false);
+    }
+    cb(null, true);
+  },
+});
 
 app.post('/upload', upload.single('file'), (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'לא התקבל קובץ' });
+  if (!req.file) {
+    return res.status(400).json({ error: 'לא התקבל קובץ או שהפורמט אינו נתמך (יש להעלות קובץ docx).' });
+  }
 
   const fileId = path.parse(req.file.filename).name;
-  const baseUrl = req.headers.origin || `https://my-client.onrender.com`; // תחליף אם צריך
-  const shareLink = `${baseUrl}/sign/${fileId}`;
+  const shareLink = `https://my-client.onrender.com/sign/${fileId}`; // השתמשי בכתובת הקליינט הקבועה
 
   res.json({ message: 'הקובץ התקבל', shareLink });
 });
@@ -68,23 +87,24 @@ app.post('/sign/:fileId', async (req, res) => {
     return res.status(400).json({ error: 'חסר שם חתימה' });
   }
 
+  let filePath;
   try {
-    const files = fs.readdirSync(UPLOAD_FOLDER);
-    const fileName = files.find(f => path.parse(f).name === fileId);
+    const files = await fs.readdir(UPLOAD_FOLDER);
+    const fileName = files.find(f => path.parse(f).name === fileId && f.endsWith('.docx'));
 
-    if (!fileName || !fileName.endsWith('.docx')) {
+    if (!fileName) {
       return res.status(404).json({ error: 'קובץ docx לא נמצא' });
     }
 
-    const filePath = path.join(UPLOAD_FOLDER, fileName);
-    const content = fs.readFileSync(filePath, 'binary');
+    filePath = path.join(UPLOAD_FOLDER, fileName);
+    const content = await fs.readFile(filePath, 'binary');
     const zip = new PizZip(content);
     const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true });
 
     doc.setData({ signerName });
     doc.render();
     const buf = doc.getZip().generate({ type: 'nodebuffer' });
-    fs.writeFileSync(filePath, buf);
+    await fs.writeFile(filePath, buf);
 
     const mailOptions = {
       from: process.env.EMAIL_ADDRESS,
@@ -95,23 +115,30 @@ app.post('/sign/:fileId', async (req, res) => {
     };
 
     await transporter.sendMail(mailOptions);
+    await fs.unlink(filePath); // מחיקת הקובץ לאחר השליחה
 
     res.json({ message: `הקובץ נחתם ונשלח בהצלחה על ידי ${signerName}` });
   } catch (error) {
     console.error('שגיאה:', error);
-    res.status(500).json({ error: 'שגיאה: ' + error.message });
+    res.status(500).json({ error: 'אירעה שגיאה בשרת. אנא נסה שוב מאוחר יותר.' });
   }
 });
 
-app.get('/file/:fileId', (req, res) => {
+app.get('/file/:fileId', async (req, res) => {
   const { fileId } = req.params;
-  const files = fs.readdirSync(UPLOAD_FOLDER);
-  const fileName = files.find(f => path.parse(f).name === fileId);
+  try {
+    const files = await fs.readdir(UPLOAD_FOLDER);
+    const fileName = files.find(f => path.parse(f).name === fileId);
 
-  if (!fileName) return res.status(404).send('קובץ לא נמצא');
+    if (!fileName) {
+      return res.status(404).send('קובץ לא נמצא');
+    }
 
-  const filePath = path.join(UPLOAD_FOLDER, fileName);
-  res.sendFile(filePath);
+    const filePath = path.join(UPLOAD_FOLDER, fileName);
+    res.sendFile(filePath);
+  } catch (error) {
+    res.status(500).send('שגיאה בשרת');
+  }
 });
 
 app.listen(PORT, () => {
