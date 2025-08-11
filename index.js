@@ -12,6 +12,12 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Middleware ללוג של כל בקשה נכנסת
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.url}`);
+  next();
+});
+
 // הגדרות CORS
 const allowedOrigins = [
   'http://localhost:3000',
@@ -66,7 +72,7 @@ app.post('/upload', upload.single('file'), (req, res) => {
   }
 
   const fileId = path.parse(req.file.filename).name;
-const shareLink = `https://client-digital-signature-x7xa.vercel.app/sign/${fileId}`;
+  const shareLink = `https://client-digital-signature-x7xa.vercel.app/sign/${fileId}`;
 
   res.json({ message: 'הקובץ התקבל', shareLink });
 });
